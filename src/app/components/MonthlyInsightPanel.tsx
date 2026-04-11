@@ -19,23 +19,23 @@ export function MonthlyInsightPanel({ selectedDate }: MonthlyInsightPanelProps) 
   );
   const [comparison, setComparison] = useState<string>("");
 
-  const generateInsight = () => {
+  const generateInsight = async () => {
     const year = selectedDate.getFullYear();
     const month = selectedDate.getMonth() + 1;
-    const entries = storageService.getEntriesByMonth(year, month);
+    const entries = await storageService.getEntriesByMonth(year, month);
     const generated = aiService.generateMonthlyInsight(entries, year, month);
     setInsight(generated);
     setShowInsight(true);
   };
 
-  const handleCompare = (month: Date) => {
+  const handleCompare = async (month: Date) => {
     const year1 = selectedDate.getFullYear();
     const month1 = selectedDate.getMonth() + 1;
-    const entries1 = storageService.getEntriesByMonth(year1, month1);
+    const entries1 = await storageService.getEntriesByMonth(year1, month1);
 
     const year2 = month.getFullYear();
     const month2 = month.getMonth() + 1;
-    const entries2 = storageService.getEntriesByMonth(year2, month2);
+    const entries2 = await storageService.getEntriesByMonth(year2, month2);
 
     const month1Name = selectedDate.toLocaleDateString("en-US", {
       month: "long",

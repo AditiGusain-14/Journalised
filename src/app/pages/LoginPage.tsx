@@ -12,7 +12,7 @@ export function LoginPage() {
   const [password, setPassword] = useState("");
   const navigate = useNavigate();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!email || !password) {
@@ -20,14 +20,18 @@ export function LoginPage() {
       return;
     }
 
-    const user = {
-      id: Math.random().toString(36).substring(7),
-      email,
-      theme: "light" as const,
-    };
-    storageService.setUser(user);
-    toast.success(isSignup ? "Account created successfully!" : "Welcome back!");
-    navigate("/");
+    try {
+      if (isSignup) {
+        await storageService.register(email, password);
+        toast.success("Account created successfully!");
+      } else {
+        await storageService.login(email, password);
+        toast.success("Welcome back!");
+      }
+      navigate("/");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Authentication failed");
+    }
   };
 
   return (
@@ -40,7 +44,7 @@ export function LoginPage() {
       >
         <div className="text-center mb-12">
           <h1 className="text-4xl font-light tracking-tight mb-3">
-            Insight Journal
+            Journalised
           </h1>
           <p className="text-muted-foreground text-sm font-light">
             {isSignup ? "Begin your journey" : "Welcome back"}

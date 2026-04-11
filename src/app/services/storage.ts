@@ -1,6 +1,6 @@
 import { Entry, User } from "../types";
+import { apiDelete, apiGet, apiPost } from "./api";
 
-const ENTRIES_KEY = "insight_journal_entries";
 const USER_KEY = "insight_journal_user";
 
 export const storageService = {
@@ -18,41 +18,88 @@ export const storageService = {
     localStorage.removeItem(USER_KEY);
   },
 
-  // Entry management
-  getEntries(): Entry[] {
-    const data = localStorage.getItem(ENTRIES_KEY);
-    return data ? JSON.parse(data) : [];
+  async register(email: string, password: string): Promise<User> {
+    const user = await apiPost<User>("/auth/register", { email, password });
+    this.setUser(user);
+    return user;
   },
 
-  getEntry(id: string): Entry | null {
-    const entries = this.getEntries();
+  async login(email: string, password: string): Promise<User> {
+    const user = await apiPost<User>("/auth/login", { email, password });
+    this.setUser(user);
+    return user;
+  },
+
+  // Entry management via backend
+  async getEntries(): Promise<Entry[]> {
+    const user = this.getUser();
+    if (!user?.id) return [];
+    const entries = await apiGet<Array<{ id: number; user_id: string; content: string; created_at: string }>>(
+      `/entry/all?user_id=${encodeURIComponent(user.id)}`
+    );
+    return entries.map((entry) => ({
+      id: String(entry.id),
+      userId: entry.user_id,
+      rawContent: entry.content,
+      formattedContent: entry.content,
+      createdAt: entry.created_at,
+      images: [],
+      attachments: [],
+    }));
+  },
+
+  async getEntry(id: string): Promise<Entry | null> {
+    const entries = await this.getEntries();
     return entries.find((e) => e.id === id) || null;
   },
 
-  saveEntry(entry: Entry): void {
-    const entries = this.getEntries();
-    const index = entries.findIndex((e) => e.id === entry.id);
-    if (index >= 0) {
-      entries[index] = entry;
-    } else {
-      entries.push(entry);
-    }
-    localStorage.setItem(ENTRIES_KEY, JSON.stringify(entries));
+  async saveEntry(entry: Entry): Promise<Entry> {
+    const user = this.getUser();
+    if (!user?.id) throw new Error("Please sign in first.");
+    const saved = await apiPost<{ id: number; user_id: string; content: string; created_at: string }>("/entry/create", {
+      user_id: user.id,
+      content: entry.formattedContent || entry.rawContent,
+    });
+
+    return {
+      ...entry,
+      id: String(saved.id),
+      userId: saved.user_id,
+      rawContent: saved.content,
+      formattedContent: saved.content,
+      createdAt: saved.created_at,
+    };
   },
 
-  deleteEntry(id: string): void {
-    const entries = this.getEntries();
-    const filtered = entries.filter((e) => e.id !== id);
-    localStorage.setItem(ENTRIES_KEY, JSON.stringify(filtered));
+  async deleteEntry(id: string): Promise<void> {
+    const user = this.getUser();
+    if (!user?.id) throw new Error("Please sign in first.");
+    await apiDelete<{ status: string; deleted_id: number }>(
+      `/entry/delete/${id}?user_id=${encodeURIComponent(user.id)}`
+    );
   },
 
-  getEntriesByDate(date: string): Entry[] {
-    const entries = this.getEntries();
+  async getTheme(userId: string): Promise<"light" | "dark" | "beige"> {
+    const response = await apiGet<{ user_id: string; theme: "light" | "dark" | "beige" }>(
+      `/preferences/theme/${userId}`
+    );
+    return response.theme;
+  },
+
+  async saveTheme(userId: string, theme: "light" | "dark" | "beige"): Promise<void> {
+    await apiPost("/preferences/theme", {
+      user_id: userId,
+      theme,
+    });
+  },
+
+  async getEntriesByDate(date: string): Promise<Entry[]> {
+    const entries = await this.getEntries();
     return entries.filter((e) => e.createdAt.startsWith(date));
   },
 
-  getEntriesByMonth(year: number, month: number): Entry[] {
-    const entries = this.getEntries();
+  async getEntriesByMonth(year: number, month: number): Promise<Entry[]> {
+    const entries = await this.getEntries();
     const monthStr = `${year}-${String(month).padStart(2, "0")}`;
     return entries.filter((e) => e.createdAt.startsWith(monthStr));
   },

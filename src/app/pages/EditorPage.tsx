@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router";
 import { Button } from "../components/ui/button";
 import { Textarea } from "../components/ui/textarea";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { AIPanel } from "../components/AIPanel";
 import { storageService } from "../services/storage";
 import { aiService } from "../services/ai";
@@ -19,10 +21,14 @@ export function EditorPage() {
   const [images, setImages] = useState<string[]>([]);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isSaving, setIsSaving] = useState(false);
+  const [isFormatting, setIsFormatting] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
 
   useEffect(() => {
-    if (id) {
-      const entry = storageService.getEntry(id);
+    if (!id) return;
+
+    const loadEntry = async () => {
+      const entry = await storageService.getEntry(id);
       if (entry) {
         setRawContent(entry.rawContent);
         setFormattedContent(entry.formattedContent);
@@ -30,22 +36,31 @@ export function EditorPage() {
         setImages(entry.images);
         setAttachments(entry.attachments);
       }
-    }
+    };
+
+    loadEntry();
   }, [id]);
 
-  const handleFormat = () => {
+  const handleFormat = async () => {
     if (!rawContent.trim()) {
       toast.error("Please write something first");
       return;
     }
 
-    const formatted = aiService.formatEntry(rawContent);
-    setFormattedContent(formatted);
-    setIsFormatted(true);
-    toast.success("Entry formatted!");
+    try {
+      setIsFormatting(true);
+      const formatted = await aiService.formatEntry(rawContent);
+      setFormattedContent(formatted);
+      setIsFormatted(true);
+      toast.success("Entry formatted!");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Formatting failed");
+    } finally {
+      setIsFormatting(false);
+    }
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!rawContent.trim() && !formattedContent.trim()) {
       toast.error("Entry cannot be empty");
       return;
@@ -58,51 +73,70 @@ export function EditorPage() {
       userId: storageService.getUser()?.id || "",
       rawContent,
       formattedContent: formattedContent || rawContent,
-      createdAt: id
-        ? storageService.getEntry(id)?.createdAt || new Date().toISOString()
-        : new Date().toISOString(),
+      createdAt: new Date().toISOString(),
       images,
       attachments,
     };
 
-    storageService.saveEntry(entry);
-    setIsSaving(false);
-    toast.success("Saved");
-    navigate("/");
+    try {
+      await storageService.saveEntry(entry);
+      toast.success("Saved");
+      navigate("/");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Save failed");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
 
-    Array.from(files).forEach((file) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImages((prev) => [...prev, reader.result as string]);
-      };
-      reader.readAsDataURL(file);
-    });
-  };
-
-  const handlePdfUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files) return;
-
-    Array.from(files).forEach((file) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const attachment: Attachment = {
-          id: Math.random().toString(36).substring(7),
-          fileName: file.name,
-          fileType: file.type,
-          dataUrl: reader.result as string,
-          extractedText: `Sample text extracted from ${file.name}. This would contain the actual PDF content in a real implementation.`,
+    try {
+      setIsUploading(true);
+      for (const file of Array.from(files)) {
+        await aiService.uploadImage(file);
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setImages((prev) => [...prev, reader.result as string]);
         };
-        setAttachments((prev) => [...prev, attachment]);
-        toast.success(`${file.name} uploaded`);
-      };
-      reader.readAsDataURL(file);
-    });
+        reader.readAsDataURL(file);
+      }
+      toast.success("Image uploaded");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Image upload failed");
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handlePdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+
+    try {
+      setIsUploading(true);
+      for (const file of Array.from(files)) {
+        await aiService.uploadPdf(file);
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const attachment: Attachment = {
+            id: Math.random().toString(36).substring(7),
+            fileName: file.name,
+            fileType: file.type,
+            dataUrl: reader.result as string,
+          };
+          setAttachments((prev) => [...prev, attachment]);
+        };
+        reader.readAsDataURL(file);
+      }
+      toast.success("PDF uploaded");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "PDF upload failed");
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const handleInsertText = (text: string) => {
@@ -138,11 +172,11 @@ export function EditorPage() {
             <Button
               variant="outline"
               onClick={handleFormat}
-              disabled={isFormatted}
+              disabled={isFormatted || isFormatting}
               className="rounded-xl border-border/50 hover:bg-muted/50 h-10 px-4"
             >
               <Wand2 className="h-4 w-4 mr-2" />
-              <span className="font-light">Format</span>
+              <span className="font-light">{isFormatting ? "Formatting..." : "Format"}</span>
             </Button>
             <Button
               onClick={handleSave}
@@ -179,7 +213,7 @@ export function EditorPage() {
                 >
                   <span>
                     <ImageIcon className="h-3.5 w-3.5 mr-2" />
-                    <span className="font-light text-xs">Images</span>
+                    <span className="font-light text-xs">{isUploading ? "Uploading..." : "Images"}</span>
                   </span>
                 </Button>
               </label>
@@ -199,7 +233,7 @@ export function EditorPage() {
                 >
                   <span>
                     <FileText className="h-3.5 w-3.5 mr-2" />
-                    <span className="font-light text-xs">PDFs</span>
+                    <span className="font-light text-xs">{isUploading ? "Uploading..." : "PDFs"}</span>
                   </span>
                 </Button>
               </label>
@@ -290,15 +324,19 @@ export function EditorPage() {
                       <span className="font-light text-xs">Edit Raw</span>
                     </Button>
                   </div>
-                  <Textarea
-                    value={formattedContent}
-                    onChange={(e) => setFormattedContent(e.target.value)}
-                    className="min-h-[500px] text-base border-0 bg-transparent resize-none 
-                      focus-visible:ring-0 px-0 font-light leading-relaxed"
-                  />
-                  <p className="text-xs text-muted-foreground font-light mt-4">
-                    Your entry is structured. You can still edit it freely.
-                  </p>
+                  <div className="prose prose-sm max-w-none prose-headings:font-bold prose-h1:mb-8 prose-h2:mb-6 prose-h3:mb-4 prose-ul:ml-8 min-h-[500px] p-6 border rounded-xl bg-muted/20 font-serif [&_*]:font-serif [&_h1]:font-bold [&_h2]:font-bold [&_h3]:font-bold [&_ul]:list-disc [&_li]:ml-4">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {formattedContent}
+                    </ReactMarkdown>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setFormattedContent(rawContent)}
+                    className="mt-4 h-8 px-4 rounded-lg hover:bg-muted/50"
+                  >
+                    Edit Raw
+                  </Button>
                 </div>
               )}
             </div>

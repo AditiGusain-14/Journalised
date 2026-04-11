@@ -28,14 +28,14 @@ export function HomePage() {
     loadEntries();
   }, [selectedDate]);
 
-  const loadEntries = () => {
+  const loadEntries = async () => {
     const dateStr = selectedDate.toISOString().split("T")[0];
-    const dayEntries = storageService.getEntriesByDate(dateStr);
+    const dayEntries = await storageService.getEntriesByDate(dateStr);
     setEntries(dayEntries.sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
 
     const year = selectedDate.getFullYear();
     const month = selectedDate.getMonth() + 1;
-    const monthEntries = storageService.getEntriesByMonth(year, month);
+    const monthEntries = await storageService.getEntriesByMonth(year, month);
 
     const counts: Record<string, number> = {};
     monthEntries.forEach((entry) => {
@@ -53,10 +53,14 @@ export function HomePage() {
     setSelectedDate(new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 1));
   };
 
-  const handleDeleteEntry = (id: string) => {
-    storageService.deleteEntry(id);
-    toast.success("Entry deleted");
-    loadEntries();
+  const handleDeleteEntry = async (id: string) => {
+    try {
+      await storageService.deleteEntry(id);
+      toast.success("Entry deleted");
+      loadEntries();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Delete failed");
+    }
   };
 
   const handleLogout = () => {
@@ -70,51 +74,22 @@ export function HomePage() {
       {/* Header */}
       <header className="border-b border-border/50 bg-card/50 backdrop-blur-sm sticky top-0 z-10">
         <div className="max-w-4xl mx-auto px-6 py-6 flex items-center justify-between">
-          <h1 className="text-xl font-light tracking-tight">Insight Journal</h1>
+          <h1 className="text-xl font-light tracking-tight">Journalised</h1>
           <div className="flex items-center gap-2">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="rounded-full hover:bg-muted/50 transition-all duration-200"
-                >
-                  <Palette className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="rounded-xl">
-                <DropdownMenuItem
-                  onClick={() => setTheme("light")}
-                  className="rounded-lg cursor-pointer"
-                >
-                  <div className="flex items-center gap-3 w-full">
-                    <div className="w-3 h-3 rounded-full bg-gradient-to-br from-neutral-100 to-neutral-300 border" />
-                    <span className="font-light">Light</span>
-                    {theme === "light" && <span className="ml-auto text-primary">✓</span>}
-                  </div>
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => setTheme("dark")}
-                  className="rounded-lg cursor-pointer"
-                >
-                  <div className="flex items-center gap-3 w-full">
-                    <div className="w-3 h-3 rounded-full bg-gradient-to-br from-neutral-800 to-neutral-950 border" />
-                    <span className="font-light">Dark</span>
-                    {theme === "dark" && <span className="ml-auto text-primary">✓</span>}
-                  </div>
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => setTheme("warm")}
-                  className="rounded-lg cursor-pointer"
-                >
-                  <div className="flex items-center gap-3 w-full">
-                    <div className="w-3 h-3 rounded-full bg-gradient-to-br from-amber-100 to-amber-300 border" />
-                    <span className="font-light">Warm</span>
-                    {theme === "warm" && <span className="ml-auto text-primary">✓</span>}
-                  </div>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => {
+                const nextTheme =
+                  theme === "light" ? "dark" :
+                  theme === "dark" ? "beige" :
+                  "light";
+                setTheme(nextTheme);
+              }}
+              className="rounded-full hover:bg-muted/50 active:scale-90 transition-all duration-200"
+            >
+              <Palette className="h-4 w-4" />
+            </Button>
             <Button
               variant="ghost"
               size="icon"

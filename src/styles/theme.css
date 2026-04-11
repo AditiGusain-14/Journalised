@@ -76,8 +76,8 @@
   --sidebar-ring: #3b82f6;
 }
 
-/* Warm theme - beige + brown tones */
-[data-theme="warm"] {
+/* Beige theme - beige + brown tones */
+[data-theme="beige"] {
   --background: #fdfcfb;
   --foreground: #2d2520;
   --card: #ffffff;

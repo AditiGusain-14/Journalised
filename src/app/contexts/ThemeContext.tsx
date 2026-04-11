@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
+import { storageService } from "../services/storage";
 
-type Theme = "light" | "dark" | "warm";
+type Theme = "light" | "dark" | "beige";
 
 interface ThemeContextType {
   theme: Theme;
@@ -14,6 +15,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     const user = localStorage.getItem("insight_journal_user");
     if (user) {
       const userData = JSON.parse(user);
+      if (userData.theme === "warm") return "beige";
       return userData.theme || "light";
     }
     return "light";
@@ -26,12 +28,38 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       const userData = JSON.parse(user);
       userData.theme = newTheme;
       localStorage.setItem("insight_journal_user", JSON.stringify(userData));
+      if (userData.id) {
+        storageService.saveTheme(userData.id, newTheme).catch(() => {
+          // Keep local theme even if backend persistence fails.
+        });
+      }
     }
   };
 
   useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
+    const root = document.documentElement;
+    root.classList.remove("dark");
+    root.removeAttribute("data-theme");
+    if (theme === "dark") {
+      root.classList.add("dark");
+    } else if (theme === "beige") {
+      root.setAttribute("data-theme", "beige");
+    }
   }, [theme]);
+
+  useEffect(() => {
+    const syncThemeFromBackend = async () => {
+      const user = storageService.getUser();
+      if (!user?.id) return;
+      try {
+        const backendTheme = await storageService.getTheme(user.id);
+        setThemeState(backendTheme);
+      } catch {
+        // Keep local fallback.
+      }
+    };
+    syncThemeFromBackend();
+  }, []);
 
   return (
     <ThemeContext.Provider value={{ theme, setTheme }}>

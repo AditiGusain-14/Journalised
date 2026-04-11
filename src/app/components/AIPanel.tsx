@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
 import { Sparkles, Copy, FileText, Lightbulb } from "lucide-react";
@@ -6,6 +6,9 @@ import { aiService } from "../services/ai";
 import { Attachment } from "../types";
 import { toast } from "sonner";
 import { motion } from "motion/react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import rehypeRaw from "rehype-raw";
 
 interface AIPanelProps {
   rawContent: string;
@@ -18,35 +21,97 @@ export function AIPanel({ rawContent, attachments, onInsertText }: AIPanelProps)
   const [response, setResponse] = useState("");
   const [pdfInsight, setPdfInsight] = useState("");
   const [selectedPdf, setSelectedPdf] = useState<string>("");
+  const [isAsking, setIsAsking] = useState(false);
+  const [isAnalyzingPdf, setIsAnalyzingPdf] = useState(false);
 
-  const handleAsk = () => {
+  const handleAsk = async () => {
     if (!question.trim()) {
       toast.error("Please enter a question");
       return;
     }
 
-    const context = rawContent + "\n" + attachments.map((a) => a.extractedText).join("\n");
-    let answer = "";
-
-    if (question.toLowerCase().includes("summary")) {
-      answer = `Based on your notes: ${rawContent.substring(0, 200)}...`;
-    } else if (question.toLowerCase().includes("key") || question.toLowerCase().includes("important")) {
-      answer = "Key points from your entry:\n• " + rawContent.split("\n").slice(0, 3).join("\n• ");
-    } else {
-      answer = `Regarding "${question}":\n\nBased on the context, ${
-        context.length > 100
-          ? "you've mentioned relevant information in your notes."
-          : "you might want to add more details about this."
-      }`;
+    try {
+      setIsAsking(true);
+      setResponse("");
+      const normalizedQuestion = question.trim();
+      const answer = await aiService.askRag(normalizedQuestion);
+      setResponse(answer);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "AI request failed";
+      setResponse(`Could not get AI response: ${message}`);
+      toast.error(message);
+    } finally {
+      setIsAsking(false);
     }
-
-    setResponse(answer);
   };
 
-  const handleAnalyzePdf = (attachment: Attachment) => {
-    setSelectedPdf(attachment.fileName);
-    const insight = aiService.analyzePDF(attachment.extractedText || "");
-    setPdfInsight(insight);
+  const handleAnalyzePdf = async (attachment: Attachment) => {
+    try {
+      setIsAnalyzingPdf(true);
+      setSelectedPdf(attachment.fileName);
+      const insight = await aiService.analyzePDF(attachment.fileName);
+      setPdfInsight(insight);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Document analysis failed");
+    } finally {
+      setIsAnalyzingPdf(false);
+    }
+  };
+
+  const buildSuggestions = (text: string): string => {
+    const words = text.trim().split(/\s+/).filter(Boolean);
+    const hasNumbers = /\d/.test(text);
+    const hasDate = /\b(today|tomorrow|yesterday|\d{4}-\d{2}-\d{2}|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i.test(
+      text
+    );
+    const hasActionVerbs = /\b(will|plan|start|finish|follow up|call|email|schedule|review)\b/i.test(text);
+    const firstLine = text.split("\n").map((l) => l.trim()).find(Boolean) || "your main topic";
+
+    const suggestions: string[] = [];
+    if (!hasNumbers) suggestions.push("Add at least one metric (number, %, time, or count) to make progress trackable.");
+    if (!hasDate) suggestions.push("Mention a concrete date/time for the next step.");
+    if (!hasActionVerbs) suggestions.push("Add one explicit action sentence starting with 'I will ...'.");
+    suggestions.push(`Clarify impact: why "${firstLine.slice(0, 60)}" matters right now.`);
+    if (words.length < 80) suggestions.push("Expand with context: trigger, what happened, and what changed after.");
+
+    return "Suggestions:\n\n" + suggestions.map((s) => `- ${s}`).join("\n");
+  };
+
+  const buildExpandedEntry = (text: string): string => {
+    const base = text.trim();
+    if (!base) {
+      return [
+        "Context:",
+        "- What happened?",
+        "- Where/when did it happen?",
+        "",
+        "What I noticed:",
+        "- Key signals or emotions",
+        "",
+        "Impact:",
+        "- What changed because of this?",
+        "",
+        "Next step:",
+        "- One concrete action with deadline",
+      ].join("\n");
+    }
+
+    return [
+      base,
+      "",
+      "Reflection:",
+      "- What was the root cause?",
+      "- What part was under my control?",
+      "- What evidence supports this interpretation?",
+      "",
+      "Action Plan:",
+      "- Next action:",
+      "- Deadline:",
+      "- Success metric:",
+      "",
+      "Follow-up note:",
+      "- What to review in 48 hours:",
+    ].join("\n");
   };
 
   return (
@@ -90,8 +155,23 @@ export function AIPanel({ rawContent, attachments, onInsertText }: AIPanelProps)
                   <Copy className="h-3 w-3" />
                 </button>
               </div>
-              <div className="whitespace-pre-wrap text-muted-foreground font-light leading-relaxed">
-                {pdfInsight}
+              <div className="prose prose-sm max-w-none text-muted-foreground font-light leading-relaxed prose-headings:font-bold">
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  rehypePlugins={[rehypeRaw]}
+                  components={{
+                    h1: ({node, ...props}) => <h1 className="text-xl font-bold mt-4 mb-2 text-primary" {...props}/>,
+                    h2: ({node, ...props}) => <h2 className="text-lg font-semibold mt-3 mb-2 border-b border-primary/20 pb-1" {...props}/>,
+                    h3: ({node, ...props}) => <h3 className="text-base font-semibold mt-2 mb-1 text-accent" {...props}/>,
+                    ul: ({node, ...props}) => <ul className="list-disc ml-6 space-y-1 mb-3" {...props}/>,
+                    ol: ({node, ...props}) => <ol className="list-decimal ml-6 space-y-1 mb-3" {...props}/>,
+                    li: ({node, ...props}) => <li className="leading-relaxed" {...props}/>,
+                    p: ({node, ...props}) => <p className="leading-relaxed mb-2" {...props}/>,
+                    strong: ({node, ...props}) => <strong className="font-bold text-foreground" {...props}/>
+                  }}
+                >
+                  {pdfInsight}
+                </ReactMarkdown>
               </div>
             </motion.div>
           )}
@@ -113,10 +193,11 @@ export function AIPanel({ rawContent, attachments, onInsertText }: AIPanelProps)
         />
         <Button
           onClick={handleAsk}
+          disabled={isAsking}
           size="sm"
           className="w-full h-9 rounded-lg bg-primary/90 hover:bg-primary"
         >
-          <span className="font-light">Ask</span>
+          <span className="font-light">{isAsking ? "Thinking..." : "Ask"}</span>
         </Button>
         {response && (
           <motion.div
@@ -136,9 +217,24 @@ export function AIPanel({ rawContent, attachments, onInsertText }: AIPanelProps)
                 <Copy className="h-3 w-3 text-primary" />
               </button>
             </div>
-            <div className="whitespace-pre-wrap text-foreground/70 font-light leading-relaxed">
-              {response}
-            </div>
+            <div className="prose prose-sm max-w-none text-foreground/70 font-light leading-relaxed prose-headings:font-bold">
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  rehypePlugins={[rehypeRaw]}
+                  components={{
+                    h1: ({node, ...props}) => <h1 className="text-xl font-bold mt-4 mb-2 text-primary" {...props}/>,
+                    h2: ({node, ...props}) => <h2 className="text-lg font-semibold mt-3 mb-2 border-b border-primary/20 pb-1" {...props}/>,
+                    h3: ({node, ...props}) => <h3 className="text-base font-semibold mt-2 mb-1 text-accent" {...props}/>,
+                    ul: ({node, ...props}) => <ul className="list-disc ml-6 space-y-1 mb-3" {...props}/>,
+                    ol: ({node, ...props}) => <ol className="list-decimal ml-6 space-y-1 mb-3" {...props}/>,
+                    li: ({node, ...props}) => <li className="leading-relaxed" {...props}/>,
+                    p: ({node, ...props}) => <p className="leading-relaxed mb-2" {...props}/>,
+                    strong: ({node, ...props}) => <strong className="font-bold text-foreground" {...props}/>
+                  }}
+                >
+                  {response}
+                </ReactMarkdown>
+              </div>
           </motion.div>
         )}
       </div>
@@ -156,16 +252,11 @@ export function AIPanel({ rawContent, attachments, onInsertText }: AIPanelProps)
             className="w-full justify-start text-xs h-9 rounded-lg border-border/50 
               hover:bg-muted/50 font-light"
             onClick={() => {
-              const suggestions = [
-                "Add specific metrics or numbers",
-                "Clarify the timeline",
-                "Include next action items",
-              ];
-              setResponse("Suggestions:\n\n" + suggestions.map((s) => `• ${s}`).join("\n"));
+              setResponse(buildSuggestions(rawContent));
             }}
           >
             <Sparkles className="h-3 w-3 mr-2" />
-            Get Suggestions
+            {isAnalyzingPdf ? "Analyzing..." : "Get Suggestions"}
           </Button>
           <Button
             variant="outline"
@@ -173,7 +264,7 @@ export function AIPanel({ rawContent, attachments, onInsertText }: AIPanelProps)
             className="w-full justify-start text-xs h-9 rounded-lg border-border/50 
               hover:bg-muted/50 font-light"
             onClick={() => {
-              const expanded = `${rawContent}\n\nAdditional Context:\nThis observation is significant because it indicates a pattern worth monitoring. Consider documenting related metrics and setting up regular check-ins.`;
+              const expanded = buildExpandedEntry(rawContent);
               onInsertText(expanded);
               toast.success("Entry expanded");
             }}
