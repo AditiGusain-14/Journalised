@@ -1,0 +1,19 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: insightjournal-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: insight
+      POSTGRES_PASSWORD: insightpassword
+      POSTGRES_DB: insightjournal
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
+
