@@ -1,1 +1,0 @@
-# ✅ Backend Setup Complete!\n\n✅ requirements.txt updated\n✅ .gitignore added (ignores DB, chroma, uploads, venv)\n✅ Server/Endpoints verified\n\n**Run**:\n```bash\ncd Insightjournal/backend\npip install -r requirements.txt\nuvicorn main:app --reload --port 8000\n```\n**Frontend**:\n```bash\ncd Insightjournal\nnpm run dev\n```
